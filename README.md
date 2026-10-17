@@ -1,5 +1,18 @@
 # SteamInputREV-AI
 
+> **Status: WORK IN PROGRESS** — an active reverse-engineering project, not
+> a finished product. What is verified vs pending:
+
+| capability | state |
+|---|---|
+| Steam Input engine boots standalone (Steam stopped) | ✅ verified |
+| Hybrid mode: enumerate DualSense + drive lightbar/rumble/adaptive triggers with Steam merely running | ✅ verified on hardware |
+| Bluetooth microphone: Opus-in-HID decode → PipeWire input | ✅ verified on hardware (rms 589, 10 s @ 100 frames/s) |
+| Control map + live identification (`ds5-input`) | ✅ verified on hardware (3.8k frames decoded) |
+| Clean mic mode without phantom inputs (hid-generic flow + waybar toggle) | ✅ code complete, tooling installed; full cycle pending one reconnect |
+| Action data (button/stick events via Steam Input) | ⛔ blocked on app-instance registration handshake (documented below) |
+| Fully standalone input (no Steam process at all) | ⛔ blocked on the master role (documented below) |
+
 Drive Valve's Steam Input engine from a standalone process — no Steam client
 running, no credentials, no game launch. The harness loads the real
 `steamclient` library from an existing Steam installation and talks to its
@@ -51,6 +64,33 @@ make mic          # needs libopus, libpulse (Arch: pacman -S opus libpulse)
 tools/ds5-mic/ds5-mic                 # run until Ctrl-C
 tools/ds5-mic/ds5-mic --wav /tmp/m.wav --secs 10   # or record straight to WAV
 ```
+
+**Waybar widget (omarchy).** `scripts/ds5-mic-setup.sh` doubles as the
+mode toggle (`on|off|toggle|status|widget|notify`). Install it privileged
+and passwordless so the bar can click-toggle:
+
+```sh
+sudo install -Dm755 scripts/ds5-mic-setup.sh /usr/local/bin/ds5-mic-setup
+echo "$USER ALL=(root) NOPASSWD: /usr/local/bin/ds5-mic-setup toggle" | \
+  sudo tee /etc/sudoers.d/steaminputrev-ds5mic >/dev/null
+sudo chmod 440 /etc/sudoers.d/steaminputrev-ds5mic
+```
+
+then add to `~/.config/waybar/config.jsonc` (modules-right) and restart
+waybar:
+
+```jsonc
+"custom/ds5mic": {
+  "exec": "/usr/local/bin/ds5-mic-setup widget",
+  "return-type": "json",
+  "interval": 2,
+  "on-click": "sudo -n /usr/local/bin/ds5-mic-setup toggle && /usr/local/bin/ds5-mic-setup notify && /usr/local/bin/ds5-mic-setup widget"
+}
+```
+
+🎮 = gamepad mode, 🎤 = mic mode; click to flip (reconnect the pad with a
+PS press afterwards). The helper is root-owned at `/usr/local/bin`, so the
+sudoers grant is not an escalation hole.
 
 Operational rules, learned the hard way:
 

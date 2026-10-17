@@ -56,10 +56,12 @@ Operational rules, learned the hard way:
 
 - **The kernel's `hid-playstation` parser misreads audio frames as phantom
   button/gyro input.** While streaming, the pad must be on `hid-generic`
-  instead. The tool does the swap itself when run with rights, otherwise
-  prints the two `sudo` commands. Restore the gamepad afterwards with
-  `sudo modprobe hid_playstation` (the tool restores the driver binding on
-  exit; the module reload is needed only after the one-time module unload).
+  instead — on Arch/omarchy, `scripts/ds5-mic-setup.sh on` installs a
+  modprobe.d blacklist so the pad always lands there (Steam Input and SDL
+  still see it, since they read hidraw directly; only native-evdev games
+  lose the kernel gamepad — `ds5-mic-setup.sh off` reverses). Switch modes,
+  then press PS to reconnect. The tool explains the manual steps when it
+  finds the pad on `hid-playstation`.
 - **Never send `0xFF` in the enable report's byte 4** — it latches the
   controller's hardware mic-mute (orange LED). The correct value is
   `0b11` (mic on) / `0b10` (off), per the DS5Dongle firmware. If the LED is

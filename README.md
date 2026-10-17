@@ -6,7 +6,9 @@ running, no credentials, no game launch. The harness loads the real
 controller engine through the same public C++ ABI games use.
 
 Goal: use a DualSense natively through Steam Input's engine (bindings,
-gyro, adaptive triggers, lightbar) without keeping the Steam client alive.
+gyro, adaptive triggers, lightbar) without keeping the Steam client alive —
+plus the pieces around it: the DualSense's built-in microphone as a normal
+Linux input over Bluetooth, and a full control map of the pad.
 
 ## What works today
 
@@ -28,6 +30,57 @@ consumer that attaches to it:
   `GetISteamInput("SteamInput007")` → `Init()` — the engine boots in a
   foreign process, threads and controller SHM segments included
 - clean embedded teardown (see RE notes — the obvious version segfaults)
+
+## Tools
+
+### `steaminput-harness` — Steam Input engine driver
+
+See "What works today" above and Usage below.
+
+### `ds5-mic` — DualSense microphone over Bluetooth (software-only)
+
+The DualSense exposes no Bluetooth audio profile; the mic is Opus-encoded
+(48 kHz mono, 71-byte frames) and embedded in the pad's normal HID input
+report `0x31` (bit 1 of byte 1 marks an audio frame). `ds5-mic` enables the
+mic with a CRC-guarded output report `0x32`, decodes the Opus stream, and
+plays it into a PipeWire null sink — every app can then select
+`ds5-mic-vsink.monitor` as its microphone.
+
+```sh
+make mic          # needs libopus, libpulse (Arch: pacman -S opus libpulse)
+tools/ds5-mic/ds5-mic                 # run until Ctrl-C
+tools/ds5-mic/ds5-mic --wav /tmp/m.wav --secs 10   # or record straight to WAV
+```
+
+Operational rules, learned the hard way:
+
+- **The kernel's `hid-playstation` parser misreads audio frames as phantom
+  button/gyro input.** While streaming, the pad must be on `hid-generic`
+  instead. The tool does the swap itself when run with rights, otherwise
+  prints the two `sudo` commands. Restore the gamepad afterwards with
+  `sudo modprobe hid_playstation` (the tool restores the driver binding on
+  exit; the module reload is needed only after the one-time module unload).
+- **Never send `0xFF` in the enable report's byte 4** — it latches the
+  controller's hardware mic-mute (orange LED). The correct value is
+  `0b11` (mic on) / `0b10` (off), per the DS5Dongle firmware. If the LED is
+  lit, tap the pad's mute button once.
+- The mic is quiet: default gain is 6.0 (`--gain`).
+
+Verified on hardware: 10 ms Opus frames at ~100 Hz, decoded PCM with real
+room content, monitor source recordable end-to-end.
+
+### `ds5-input` — live control identification
+
+Decodes report `0x31` state frames and names every control three ways: raw
+byte/bit, kernel event, Steam Input origin index. Press a button, see what
+it is. Full table in `docs/dualsense-input-map.md`.
+
+```sh
+make input
+tools/ds5-input/ds5-input             # interactive
+tools/ds5-input/ds5-input --legend    # print the full map
+tools/ds5-input/ds5-input --json      # events
+```
 
 ## What is blocked (the current frontier)
 
@@ -151,3 +204,15 @@ Original code, MIT license. Uses only the documented public Steamworks API
 surface of a Steam installation the user already has; no Valve or Sony
 headers are redistributed. Built for interoperability with the user's own
 hardware and software.
+
+Credits for protocol knowledge (facts only; none of their code is
+included — their licenses are GPL-3.0, this project is MIT):
+
+- [tomarai85/dualsense-bridge](https://github.com/tomarai85/dualsense-bridge) —
+  documented the DualSense BT mic protocol (report `0x31` audio variants,
+  Opus framing, the `0x32` enable, CRC construction, write discipline)
+- [awalol/DS5Dongle](https://github.com/awalol/DS5Dongle) — firmware that
+  drives the pad's audio over BT from a Pico; source of the enable byte
+  semantics (`0b11`/`0b10`) that avoid the hardware-mute latch
+- Linux `hid-playstation.c` and Steamworks SDK 1.65 headers (both public)
+  for the report layout and origin tables

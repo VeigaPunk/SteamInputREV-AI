@@ -25,6 +25,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libopus-dev libpulse-dev
+
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
@@ -35,7 +39,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           cd build
-          tar czf ../${{ matrix.asset }}.tar.gz steaminput-harness
+          tar czf ../${{ matrix.asset }}.tar.gz steaminput-harness ds5-mic ds5-input
           cd ..
           sha256sum ${{ matrix.asset }}.tar.gz > ${{ matrix.asset }}.tar.gz.sha256
 

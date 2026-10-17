@@ -1,0 +1,5 @@
+steaminput-harness
+steaminput-harness.exe
+build/
+*.o
+*.dmp

@@ -1,0 +1,55 @@
+// SteamInputREV-AI probe manifest — action set exercised by the harness
+// monitor mode. Names follow the common Steam Input conventions so
+// community DualSense configurations apply without remapping.
+"Action Manifest"
+{
+	"actions"
+	{
+		"gameplay"
+		{
+			"title"		"SteamInputREV-AI probe"
+			"StickPadGyro"
+			{
+				"left_stick"
+				{
+					"title"		"Left stick"
+					"input_mode"	"joystick_move"
+				}
+				"right_stick"
+				{
+					"title"		"Right stick"
+					"input_mode"	"joystick_move"
+				}
+			}
+			"AnalogTrigger"
+			{
+				"left_trigger"		"Left trigger"
+				"right_trigger"		"Right trigger"
+			}
+			"Button"
+			{
+				"south"			"Cross"
+				"east"			"Circle"
+				"west"			"Square"
+				"north"			"Triangle"
+				"dpad_north"		"D-pad up"
+				"dpad_south"		"D-pad down"
+				"dpad_west"		"D-pad left"
+				"dpad_east"		"D-pad right"
+				"left_shoulder"		"L1"
+				"right_shoulder"	"R1"
+				"left_trigger_click"	"L2 click"
+				"right_trigger_click"	"R2 click"
+				"left_stick_click"	"L3"
+				"right_stick_click"	"R3"
+				"select"		"Create"
+				"start"			"Options"
+				"guide"			"PS"
+				"capture"		"Create (hold)"
+				"touchpad"		"Touchpad click"
+			}
+		}
+	}
+	"major_revision"	"1"
+	"minor_revision"	"0"
+}

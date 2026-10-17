@@ -424,13 +424,17 @@ int main(int argc, char **argv) {
   if (!driver_to_generic(dev, false)) {
     char *nm = hid_device_name(dev);
     fprintf(stderr,
-            "cannot swap hid-playstation -> hid-generic as this user. Run:\n"
-            "  echo '%s' | sudo tee /sys/bus/hid/drivers/playstation/unbind\n"
-            "  echo '%s' | sudo tee /sys/bus/hid/drivers/hid-generic/bind\n"
-            "then rerun (the tool restores playstation on exit) — or pass\n"
-            "--force to stream anyway (Opus frames will appear as phantom\n"
-            "controller input to everything parsing the pad).\n",
-            nm ? nm : "0005:054C:0CE6.XXXX", nm ? nm : "0005:054C:0CE6.XXXX");
+            "the pad must run on hid-generic while the mic streams (the\n"
+            "kernel's hid-playstation parser misreads Opus frames as buttons).\n"
+            "The in-place driver swap is refused by the HID bus, so:\n"
+            "  1. echo '%s' | sudo tee /sys/bus/hid/drivers/playstation/unbind\n"
+            "  2. sudo modprobe -r hid_playstation\n"
+            "  3. press PS on the pad — it reconnects on hid-generic\n"
+            "  4. rerun this tool; afterwards restore the gamepad with\n"
+            "     sudo modprobe hid_playstation (then press PS again)\n"
+            "or pass --force to stream anyway (Opus frames will appear as\n"
+            "phantom controller input to everything parsing the pad).\n",
+            nm ? nm : "0005:054C:0CE6.XXXX");
     free(nm);
     if (!g_force) { free(found); return 2; }
     fprintf(stderr, "--force: streaming without the driver swap\n");

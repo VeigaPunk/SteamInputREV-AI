@@ -10,40 +10,56 @@ gyro, adaptive triggers, lightbar) without keeping the Steam client alive.
 
 ## What works today
 
-Verified against the Steam client build of 2026-10-13
-(`linux64/steamclient.so`), Linux x86-64, Steam client not required:
+Verified 2026-10-16 on Linux x86-64 against the Steam client build of
+2026-10-13 (`linux64/steamclient.so`) with a DualSense over Bluetooth:
+
+**Hybrid mode (Steam client running, no game launched)** — the Steam
+process is the input *master* (it owns `/dev/hidraw*`); the harness is a
+consumer that attaches to it:
+
+- `--list` enumerates the DualSense as `PS5/DualSense` with a stable handle
+- **all output paths verified on real hardware**: `--led` (lightbar color),
+  `--rumble` (both motors), `--trigger-effect feedback/weapon/vibration`
+  (DualSense adaptive triggers) — driven from a standalone process, no game
+
+**Standalone engine bring-up (Steam stopped)**:
 
 - `CreateInterface("SteamClient023")` → `CreateLocalUser` →
-  `GetISteamInput("SteamInput007")` → `Init()` — the full engine comes up
-  in a foreign process, spawning its worker threads and creating its
-  controller shared-memory segments
-- controller enumeration (`GetConnectedControllers`) and, with hardware,
-  `--list` prints device type (`PS5/DualSense`) and binding revision
-- output commands wired and ready: `--rumble`, `--led`,
-  `--trigger-effect` (DualSense adaptive triggers), motion polling
+  `GetISteamInput("SteamInput007")` → `Init()` — the engine boots in a
+  foreign process, threads and controller SHM segments included
 - clean embedded teardown (see RE notes — the obvious version segfaults)
 
 ## What is blocked (the current frontier)
 
-`SetInputActionManifestFilePath` is rejected with
-`Timed out waiting for game mapping!` in a standalone process. Findings so
-far:
+**Standalone device acquisition.** With Steam stopped the engine enumerates
+0 controllers — traced with an `LD_PRELOAD` open-logger: the game-side
+steamclient never opens `/dev/hidraw*` or `/dev/input/*` at all. Device
+ownership lives in the Steam client process (`ubuntu12_32/steam` was
+observed holding the DualSense's hidraw fd). Full standalone operation
+needs the harness to take that master role (drive the client-core input
+service via the internal `IClient*` interfaces — Proton's `lsteamclient`
+vendors their vtable layouts and is the map for that work).
 
-- the game mapping does **not** arrive via the host Steam's IPC object
-  (`/dev/shm/u<uid>-ValveIPCSharedObj-Steam`): attaching to a live Steam by
-  symlinking the name fails the engine's exclusive-create ownership checks,
-  so game-side steamclient receives its IPC channel **inherited at launch**,
-  not by name lookup
-- a clean-room run (empty `/dev/shm`, no network — use
-  `scripts/run-isolated.sh`) still times out, so the mapping is not
-  accidentally blocked by a half-attached client either: a standalone
-  process must itself take the master role and write the mapping into the
-  `SteamController_*_mem` segments. Reversing that layout is the next task.
-- lead worth chasing: steamclient convar
-  `@bClientTryRequestManifestWithoutCode`
+**Action data (button/stick events).** `SetInputActionManifestFilePath` is
+rejected with `Timed out waiting for game mapping!` even in hybrid mode:
+the client *receives* the request (visible in `logs/controller.txt`:
+"Opted-in Controller Mask for AppId …", "adopting binding"), but never
+confirms a mapping for a process that is not a registered app instance.
+`SteamAPI_Init`-style registration (flat `SteamInternal_*` handshake with
+the running client) is the missing delta; replicating it without steam_api
+is the concrete next step.
 
-Everything up to and including device enumeration works without the
-manifest; action-level data (per-button/stick events) is what waits on it.
+Older findings that still stand: the game mapping is not deliverable via
+the host IPC object by name (`/dev/shm/u<uid>-ValveIPCSharedObj-Steam` is
+exclusive-create and launch-inherited); clean-room runs (empty `/dev/shm`,
+no network — `scripts/run-isolated.sh`) behave identically, so nothing
+external is accidentally blocking it. Lead: steamclient convar
+`@bClientTryRequestManifestWithoutCode`.
+
+**Operational caveat:** failed game-mapping requests wedge the running
+client's input state (subsequent enumerations return 0 until Steam is
+restarted). Don't run `--manifest` against a live Steam client; recovery
+is `steam -shutdown` and start again.
 
 ## Install
 
@@ -78,14 +94,17 @@ is **untested** — no Windows build has been executed yet.
 ```sh
 steaminput-harness --list                          # enumerate devices
 steaminput-harness --list --json                   # machine-readable
-steaminput-harness --manifest manifests/dualsense_probe.vdf --poll 0
 steaminput-harness --rumble 40000,40000            # both motors
 steaminput-harness --led 255,0,0                   # lightbar red
 steaminput-harness --trigger-effect feedback,5,6   # adaptive triggers
-steaminput-harness --manifest ... --motion --json  # gyro/accel events
+steaminput-harness --global-user --list            # attach to running Steam
 scripts/run-isolated.sh --list                     # clean-room run
 scripts/hwtest.sh                                  # hardware acceptance test
 ```
+
+`--manifest` (action-level input monitoring) is implemented but gated on
+the registration handshake documented under "What is blocked" — and must
+not be used against a live Steam client until then (state wedging).
 
 Exit codes: `0` ok · `1` runtime error · `2` setup error · `3` no
 controllers found. `--poll 0` runs until Ctrl-C.
@@ -97,9 +116,11 @@ controllers found. `--poll 0` runs until Ctrl-C.
   uploads it to Valve's crash server (observed on an unrelated voice/video
   init assert). `scripts/run-isolated.sh` runs the engine with no network,
   which contains this; prefer it for experiments.
-- Steam Input grabs controller HID nodes exclusively. Stop the Steam client
-  (or its "Playstation Configuration Support") before hardware tests, or
-  the two will fight over the device.
+- Steam Input grabs controller HID nodes exclusively; the Steam client is
+  the device master. Hybrid mode requires the Steam client running (it
+  plays master to the harness's consumer). Standalone mode requires it
+  stopped — but the master role is not implemented yet, so standalone
+  currently enumerates 0 controllers.
 - The embedded engine must be torn down then left unloaded: the harness
   calls `Shutdown`/`ReleaseUser`/`BShutdownIfAllPipesClosed` and finishes
   with `_exit()`. Returning from `main` normally segfaults (static

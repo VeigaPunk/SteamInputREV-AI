@@ -342,6 +342,7 @@ static volatile bool g_stop = false;
 //   release = ReleaseUser only
 //   none    = skip teardown, _exit immediately
 static int g_teardown = 2;
+static bool g_global_user = false;
 
 #ifndef _WIN32
 #include <csignal>
@@ -462,6 +463,7 @@ int main(int argc, char** argv) {
       const char* m = need("--teardown");
       g_teardown = !strcmp(m, "none") ? 0 : !strcmp(m, "basic") ? 1 : !strcmp(m, "release") ? 3 : 2;
     }
+    else if (a == "--global-user") g_global_user = true;
     else if (a == "-q") quiet = true;
     else if (a == "-h" || a == "--help") { usage(); return 0; }
     else { fprintf(stderr, "unknown option: %s\n", a.c_str()); usage(); return 2; }
@@ -534,10 +536,21 @@ int main(int argc, char** argv) {
   client->SetWarningMessageHook(&warning_hook);
 
   HSteamPipe pipe = 0;
-  HSteamUser user = client->CreateLocalUser(&pipe, k_EAccountTypeIndividual);
-  if (!user || !pipe) {
-    fprintf(stderr, "error: CreateLocalUser failed\n");
-    return 2;
+  HSteamUser user = 0;
+  if (g_global_user) {
+    // attach to a running Steam client like steam_api does for launched games
+    pipe = client->CreateSteamPipe();
+    user = pipe ? client->ConnectToGlobalUser(pipe) : 0;
+    if (!user) {
+      fprintf(stderr, "error: ConnectToGlobalUser failed (is a Steam client logged in?)\n");
+      return 2;
+    }
+  } else {
+    user = client->CreateLocalUser(&pipe, k_EAccountTypeIndividual);
+    if (!user || !pipe) {
+      fprintf(stderr, "error: CreateLocalUser failed\n");
+      return 2;
+    }
   }
 
   auto input = (ISteamInput*)client->GetISteamInput(user, pipe, g_input_iface);
@@ -564,8 +577,11 @@ int main(int argc, char** argv) {
   {
     InputHandle_t handles[STEAM_INPUT_MAX_COUNT] = {};
     int n = 0;
-    // the device scanner thread may still be starting
+    // the device scanner thread may still be starting; pump both frame
+    // interfaces while waiting so pipe-driven subsystems get serviced
     for (int attempt = 0; attempt < 30 && !g_stop; attempt++) {
+      input->RunFrame(true);
+      client->RunFrame();
       n = input->GetConnectedControllers(handles);
       if (n > 0 || attempt == 29) break;
       sleep_ms(100);

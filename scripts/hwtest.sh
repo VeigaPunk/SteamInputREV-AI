@@ -31,25 +31,51 @@ else
 fi
 
 echo "== engine enumeration"
+# Device acquisition lives in the Steam client process (the input master);
+# the standalone library is the consumer. Run the enumeration with the
+# Steam client running when possible.
+steam_running=0
+pgrep -x steam >/dev/null 2>&1 && steam_running=1
+if [ $steam_running -eq 0 ]; then
+  echo "   note: Steam not running — standalone mode; the master role is"
+  echo "   not implemented yet, so 0 controllers is the expected result"
+fi
 timeout 60 "$bin" --list && rc=0 || rc=$?
 if [ $rc -eq 0 ]; then
   echo "   OK: engine enumerated the device"
 elif [ $rc -eq 3 ]; then
-  echo "   FAIL: engine sees 0 controllers (permissions? udev? Steam stopped?)"
+  if [ $steam_running -eq 1 ]; then
+    echo "   FAIL: engine sees 0 controllers with Steam running —"
+    echo "   if earlier manifest runs failed, restart Steam and retry"
+    echo "   (failed game-mapping requests can wedge the client's input state)"
+  else
+    echo "   (expected in standalone mode)"
+  fi
   exit 3
 else
   echo "   FAIL: enumeration error rc=$rc"
   exit $rc
 fi
 
-echo "== action data (press buttons/move sticks for 15s)"
-timeout 30 "$bin" --manifest "$here/manifests/dualsense_probe.vdf" --poll 15
-rc=$?
-if [ $rc -eq 0 ]; then
-  echo "   OK: monitor completed"
-else
-  echo "   monitor rc=$rc (manifest/game-mapping path — see README #status)"
-  fail=1
+echo "== output path (lightbar / rumble / adaptive triggers)"
+timeout 60 "$bin" --led 0,255,60 && rc=0 || rc=$?
+[ $rc -ne 0 ] && { echo "   FAIL: --led rc=$rc"; fail=1; }
+sleep 1
+timeout 60 "$bin" --rumble 50000,50000 && rc=0 || rc=$?
+[ $rc -ne 0 ] && { echo "   FAIL: --rumble rc=$rc"; fail=1; }
+sleep 1
+timeout 60 "$bin" --trigger-effect feedback,6,7 && rc=0 || rc=$?
+sleep 2
+timeout 60 "$bin" --trigger-effect off,0,0 && rc=0 || rc=$?
+[ $rc -ne 0 ] && { echo "   FAIL: --trigger-effect rc=$rc"; fail=1; }
+if [ $fail -eq 0 ]; then
+  echo "   OK: lightbar changed color, motors pulsed, triggers resisted"
 fi
+
+echo
+echo "Action data (button/stick events) additionally requires the game-mapping"
+echo "registration handshake — not implemented yet; see README #what-is-blocked."
+echo "Do NOT run --manifest against a live Steam client: failed game-mapping"
+echo "requests wedge its input state until Steam is restarted."
 
 exit $fail
